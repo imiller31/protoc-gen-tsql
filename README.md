@@ -41,3 +41,17 @@ message Person {
   ];
 }
 ```
+## Example Generated Schema
+```tsql
+IF  NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[Person]') AND type in (N'U'))
+BEGIN
+CREATE TABLE [dbo].[Person] (
+	[seqID] BIGINT IDENTITY(1,1) NOT NULL,
+	[1] NVARCHAR(64) NOT NULL,
+	[2] UNIQUEIDENTIFIER NOT NULL,
+	[3] DATETIME2 NOT NULL,
+	[body] VARBINARY(MAX)
+CONSTRAINT PK_Person_UNIQUE PRIMARY KEY ([1], [2])
+)
+END
+```
