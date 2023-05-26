@@ -1,0 +1,12 @@
+syntax="proto3";
+
+package tsql_options;
+
+option go_package = "proto-ext-tsql/tsql_options";
+import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.FieldOptions {
+  bool tsql_column = 50000;
+  bool tsql_primaryKey = 50001;
+  string tsql_type = 50002;
+}

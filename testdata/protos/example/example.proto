@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package example;
+
+option go_package = "github.com/imiller31/protoc-gen-tsql/testdata/generated/example";
+
+import "google/protobuf/timestamp.proto";
+import "tsql_options/tsql_options.proto";
+
+message Person {
+  string name = 1 [
+    (tsql_options.tsql_column) = true,
+    (tsql_options.tsql_primaryKey) = true,
+    (tsql_options.tsql_type) = "NVARCHAR(64)"
+  ];
+  string uuid = 2 [
+    (tsql_options.tsql_column) = true,
+    (tsql_options.tsql_primaryKey) = true,
+    (tsql_options.tsql_type) = "UNIQUEIDENTIFIER"
+  ];
+
+  google.protobuf.Timestamp last_updated_time = 3 [
+    (tsql_options.tsql_column) = true,
+    (tsql_options.tsql_type) = "DATETIME2"
+  ];
+}
