@@ -23,4 +23,6 @@ message Person {
     (tsql_options.tsql_column) = true,
     (tsql_options.tsql_type) = "DATETIME2"
   ];
+
+  string propertybag = 4;
 }

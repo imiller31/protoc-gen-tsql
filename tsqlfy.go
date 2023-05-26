@@ -2,29 +2,37 @@ package main
 
 import (
 	"bytes"
-	"fmt"
-	"io"
+	"embed"
 	"strconv"
-	"strings"
+	"text/template"
 
 	"github.com/imiller31/protoc-gen-tsql/proto-ext-tsql/tsql_options"
 	pgs "github.com/lyft/protoc-gen-star/v2"
 )
+
+//go:embed templates/create_table.tmpl
+var createTableTmpl embed.FS
+
+var funcs = template.FuncMap{
+	"sub": func(a, b int) int {
+		return a - b
+	},
+}
 
 type TsqlfyModule struct {
 	*pgs.ModuleBase
 }
 
 type TsqlfySchema struct {
-	tableName   string
-	columnNames []tsqlColumns
+	TableName string
+	Columns   []TsqlColumns
 
-	primaryKeys []string
+	PrimaryKeyColumns []string
 }
 
-type tsqlColumns struct {
-	name    string
-	sqlType string
+type TsqlColumns struct {
+	Name    string
+	SqlType string
 }
 
 func Tsqlfy() *TsqlfyModule { return &TsqlfyModule{ModuleBase: &pgs.ModuleBase{}} }
@@ -32,20 +40,16 @@ func Tsqlfy() *TsqlfyModule { return &TsqlfyModule{ModuleBase: &pgs.ModuleBase{}
 func (p *TsqlfyModule) Name() string { return "tsqlfy" }
 
 func (p *TsqlfyModule) Execute(targets map[string]pgs.File, packages map[string]pgs.Package) []pgs.Artifact {
-	buf := &bytes.Buffer{}
-
 	for _, f := range targets {
-		p.printFile(f, buf)
+		p.generateSchema(f)
 	}
 
 	return p.Artifacts()
 }
 
-func (p *TsqlfyModule) printFile(f pgs.File, buf *bytes.Buffer) {
+func (p *TsqlfyModule) generateSchema(f pgs.File) {
 	p.Push(f.Name().String())
 	defer p.Pop()
-
-	buf.Reset()
 
 	schema := TsqlfySchema{}
 
@@ -53,20 +57,26 @@ func (p *TsqlfyModule) printFile(f pgs.File, buf *bytes.Buffer) {
 	p.CheckErr(pgs.Walk(v, f), "unable to construct TSQL schema")
 
 	p.BuildContext.Logf("TSQL Schema:\n%s", schema)
-	out := generateTsql(schema)
+	t := template.New("create_table.tmpl").Funcs(funcs)
+	t, err := t.ParseFS(createTableTmpl, "templates/create_table.tmpl")
+	if err != nil {
+		p.Fail("unable to parse template", err)
+	}
+	var out bytes.Buffer
+	if err := t.Execute(&out, schema); err != nil {
+		p.Fail("unable to execute template", err)
+	}
 
-	p.Logf("TSQL:\n%s", out)
+	p.Logf("TSQL:\n%s", out.String())
 
 	p.AddGeneratorFile(
 		f.InputPath().SetExt("_schema.sql").String(),
-		out,
+		out.String(),
 	)
 }
 
 type TsqlfyVisitor struct {
 	pgs.Visitor
-	w io.Writer
-
 	schema *TsqlfySchema
 
 	buildCtx pgs.BuildContext
@@ -91,7 +101,7 @@ func (v TsqlfyVisitor) VisitFile(f pgs.File) (pgs.Visitor, error) {
 }
 
 func (v TsqlfyVisitor) VisitMessage(m pgs.Message) (pgs.Visitor, error) {
-	v.schema.tableName = m.Name().String()
+	v.schema.TableName = m.Name().String()
 	return v.writeSubNode(), nil
 }
 
@@ -113,41 +123,18 @@ func (v TsqlfyVisitor) VisitField(f pgs.Field) (pgs.Visitor, error) {
 
 	if isTsqlColumn {
 		v.buildCtx.Logf("TsqlColumn: %s", f.Name().String())
-		column := tsqlColumns{
-			name:    strconv.Itoa(int(f.Descriptor().GetNumber())),
-			sqlType: sqlType,
+		column := TsqlColumns{
+			Name:    strconv.Itoa(int(f.Descriptor().GetNumber())),
+			SqlType: sqlType,
 		}
-		v.schema.columnNames = append(v.schema.columnNames, column)
+		v.schema.Columns = append(v.schema.Columns, column)
 	}
 
 	if isTsqlPrimaryKey {
 		v.buildCtx.Logf("TsqlPrimaryKey: %s", f.Name().String())
-		v.schema.primaryKeys = append(v.schema.primaryKeys, strconv.Itoa(int(f.Descriptor().GetNumber())))
+		v.schema.PrimaryKeyColumns = append(v.schema.PrimaryKeyColumns, strconv.Itoa(int(f.Descriptor().GetNumber())))
 	}
 
 	v.buildCtx.Logf("TsqlSchema: %s", v.schema)
 	return nil, nil
-}
-
-func generateTsql(schema TsqlfySchema) string {
-	var out strings.Builder
-	out.WriteString(fmt.Sprintf("IF  NOT EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[%s]') AND type in (N'U'))", schema.tableName))
-	out.WriteString("\nBEGIN\n")
-	out.WriteString(fmt.Sprintf("CREATE TABLE [dbo].[%s] (\n", schema.tableName))
-	out.WriteString("\t[seqID] BIGINT IDENTITY(1,1) NOT NULL,\n")
-	for _, column := range schema.columnNames {
-		out.WriteString(fmt.Sprintf("\t[%s] %s NOT NULL,\n", column.name, column.sqlType))
-	}
-	out.WriteString("\t[body] VARBINARY(MAX)\n")
-	out.WriteString(fmt.Sprintf("CONSTRAINT PK_%s_UNIQUE PRIMARY KEY (", schema.tableName))
-	for i, pkey := range schema.primaryKeys {
-		out.WriteString(fmt.Sprintf("[%s]", pkey))
-		if i < len(schema.primaryKeys)-1 {
-			out.WriteString(", ")
-		}
-	}
-	out.WriteString(")\n)\n")
-	out.WriteString("END\n")
-
-	return out.String()
 }

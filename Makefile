@@ -5,39 +5,8 @@ PROTOC_VER := $(shell protoc --version | cut -d' ' -f2)
 .PHONY: bootstrap
 bootstrap: testdata # set up the project for development
 
-.PHONY: quick
-quick: testdata # runs all tests without the race detector or coverage
-ifeq ($(PROTOC_VER), 3.17.0)
-	go test $(PKGS) --tags=proto3_presence
-else
-	go test $(PKGS)
-endif
-
-.PHONY: tests
-tests: testdata # runs all tests against the package with race detection and coverage percentage
-ifeq ($(PROTOC_VER), 3.17.0)
-	go test -race -cover ./... --tags=proto3_presence
-else
-	go test -race -cover ./...
-endif
-
-.PHONY: cover
-cover: testdata # runs all tests against the package, generating a coverage report and opening it in the browser
-ifeq ($(PROTOC_VER), 3.17.0)
-	go test -race -covermode=atomic -coverprofile=cover.out ./... --tags=proto3_presence || true
-else
-	go test -race -covermode=atomic -coverprofile=cover.out ./... || true
-endif
-	go tool cover -html cover.out -o cover.html
-	open cover.html
-
-.PHONY: docs
-docs: # starts a doc server and opens a browser window to this package
-	(sleep 2 && open http://localhost:6060/pkg/$(PKG)/) &
-	godoc -http=localhost:6060
-
 .PHONY: testdata
-testdata: testdata-graph testdata/generated testdata/fdset.bin # generate all testdata
+testdata: testdata-graph testdata/generated # generate all testdata
 
 .PHONY: testdata-graph
 testdata-graph: bin/protoc-gen-debug # parses the proto file sets in testdata/graph and renders binary CodeGeneratorRequest
@@ -54,13 +23,11 @@ testdata/generated: protoc-gen-go bin/protoc-gen-tsql
 	go install google.golang.org/protobuf/cmd/protoc-gen-go
 	rm -rf ./testdata/generated && mkdir -p ./testdata/generated
 
-	# generate using our plugin, don't need to go directory at a time
-	set -e; for subdir in `find ./testdata/protos -mindepth 1 -maxdepth 1 -type d`; do \
-		protoc -I ./testdata/protos \
-			--plugin=protoc-gen-tsql=./bin/protoc-gen-tsql \
-			--tsql_out="paths=source_relative:./testdata/generated" \
-			`find $$subdir -name "example.proto"`; \
-	done
+	protoc -I ./testdata/protos \
+		--plugin=protoc-gen-tsql=./bin/protoc-gen-tsql \
+		--tsql_out="paths=source_relative:./testdata/generated" \
+		./testdata/protos/example/example.proto; \
+
 
 testdata/fdset.bin:
 	@protoc -I ./testdata/protos \
