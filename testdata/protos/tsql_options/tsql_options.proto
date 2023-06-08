@@ -10,3 +10,15 @@ extend google.protobuf.FieldOptions {
   bool tsql_primaryKey = 50001;
   string tsql_type = 50002;
 }
+
+extend google.protobuf.ServiceOptions {
+  string tsql_referenced_table = 50000;
+}
+
+extend google.protobuf.MethodOptions {
+  bool tsql_generate_sp = 50000;
+}
+
+extend google.protobuf.MessageOptions {
+  bool tsql_generate_table = 50000;
+}

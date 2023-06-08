@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package example;
+
+import "example/example.proto";
+import "tsql_options/tsql_options.proto";
+
+service ExampleService {
+  rpc GetPerson(GetPersonRequest) returns (example.Person) {
+      option (tsql_options.tsql_generate_sp) = true;
+  };
+  rpc PutPerson(PutPersonRequest) returns (example.Person);
+}
+
+message GetPersonRequest {
+  string name = 1;
+  string uuid = 2;
+}
+
+message PutPersonRequest {
+  example.Person person = 1;
+}

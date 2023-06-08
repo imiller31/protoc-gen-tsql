@@ -1,0 +1,10 @@
+IF NOT EXISTS (
+    SELECT *
+    FROM   sys.indexes
+    WHERE  object_id = OBJECT_ID('dbo.{{.TableName}}')
+           AND NAME = 'PK_{{.TableName}}'
+)
+BEGIN
+    ALTER TABLE dbo.{{.TableName}}
+    ADD CONSTRAINT PK_{{.TableName}} PRIMARY KEY ({{range $index, $element := .PrimaryKeyColumns}}{{if $index}}, {{end}}[{{.}}]{{end}});
+END

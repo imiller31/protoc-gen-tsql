@@ -1,24 +1,13 @@
 package tsqlschemafy
 
 import (
-	"bytes"
-	"embed"
-	"text/template"
-
 	pgs "github.com/lyft/protoc-gen-star/v2"
 )
 
-//go:embed templates/create_table.tmpl
-var createTableTmpl embed.FS
-
-var funcs = template.FuncMap{
-	"sub": func(a, b int) int {
-		return a - b
-	},
-}
-
 type TsqlfyModule struct {
 	*pgs.ModuleBase
+
+	database *Database
 }
 
 func TsqlSchemafy() *TsqlfyModule { return &TsqlfyModule{ModuleBase: &pgs.ModuleBase{}} }
@@ -26,37 +15,58 @@ func TsqlSchemafy() *TsqlfyModule { return &TsqlfyModule{ModuleBase: &pgs.Module
 func (p *TsqlfyModule) Name() string { return "TsqlSchemafy" }
 
 func (p *TsqlfyModule) Execute(targets map[string]pgs.File, packages map[string]pgs.Package) []pgs.Artifact {
+	p.database = &Database{}
+
+	var heads []pgs.File
+	var visited = make(map[string]bool)
+
 	for _, f := range targets {
-		p.generateSchema(f)
+		if f.Dependents() != nil {
+			heads = append(heads, f)
+		}
 	}
 
+	for _, h := range heads {
+		if visited[h.Name().String()] {
+			continue
+		}
+		p.BuildContext.Logf("Generating schema for %s", h.Name().String())
+		tableAndProcs := &TableAndProcs{}
+		p.generateTableSchema(h, tableAndProcs)
+		for _, d := range h.Dependents() {
+			if d.Services() != nil {
+				p.generateStoredProcs(d, tableAndProcs)
+				visited[d.Name().String()] = true
+			}
+		}
+		p.database.TablesAndStoredProcs = append(p.database.TablesAndStoredProcs, tableAndProcs)
+		visited[h.Name().String()] = true
+	}
+	if err := p.database.Generate(p); err != nil {
+		p.BuildContext.Failf("Error generating schema: %s", err)
+	}
 	return p.Artifacts()
 }
 
-func (p *TsqlfyModule) generateSchema(f pgs.File) {
+func (p *TsqlfyModule) generateStoredProcs(f pgs.File, tnp *TableAndProcs) {
 	p.Push(f.Name().String())
 	defer p.Pop()
 
-	schema := TsqlfySchema{}
+	p.BuildContext.Logf("Generating stored procs for %s", f.Name().String())
+	tnp.Procs = make(map[string]*StoredProcedure)
+	v := initTsqlServiceVisitor(p.BuildContext, tnp)
+	p.CheckErr(pgs.Walk(v, f), "unable to construct TSQL stored procedures")
+	p.BuildContext.Logf("TSQL Stored Procedures: %s", tnp.Procs)
+}
 
-	v := initTsqlfyVisitor(p.BuildContext, &schema)
+func (p *TsqlfyModule) generateTableSchema(f pgs.File, tnp *TableAndProcs) {
+	p.Push(f.Name().String())
+	defer p.Pop()
+
+	tnp.Table = &Table{Columns: make(map[string]*Column)}
+
+	v := initTsqlfyVisitor(p.BuildContext, tnp.Table)
 	p.CheckErr(pgs.Walk(v, f), "unable to construct TSQL schema")
-
-	p.BuildContext.Logf("TSQL Schema:\n%s", schema)
-	t := template.New("create_table.tmpl").Funcs(funcs)
-	t, err := t.ParseFS(createTableTmpl, "templates/create_table.tmpl")
-	if err != nil {
-		p.Fail("unable to parse template", err)
-	}
-	var out bytes.Buffer
-	if err := t.Execute(&out, schema); err != nil {
-		p.Fail("unable to execute template", err)
-	}
-
-	p.Logf("TSQL:\n%s", out.String())
-
-	p.AddGeneratorFile(
-		f.InputPath().SetExt("_schema.sql").String(),
-		out.String(),
-	)
+	tnp.Table.Columns["body"] = &Column{Name: "body", SqlType: "nvarchar(max)"}
+	p.BuildContext.Logf("TSQL Schema: %s", tnp.Table.TableName)
 }
