@@ -8,6 +8,7 @@ import "google/protobuf/timestamp.proto";
 import "tsql_options/tsql_options.proto";
 
 message Person {
+  option (tsql_options.tsql_generate_table) = true;
   string name = 1 [
     (tsql_options.tsql_column) = true,
     (tsql_options.tsql_primaryKey) = true,

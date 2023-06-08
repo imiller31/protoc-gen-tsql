@@ -1,0 +1,5 @@
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE Name = N'{{.Name}}' AND Object_ID = Object_ID(N'{{.TableName}}'))
+BEGIN
+    ALTER TABLE [{{.TableName}}]
+    ADD [{{.Name}}] {{.SqlType}} NOT NULL;
+END
