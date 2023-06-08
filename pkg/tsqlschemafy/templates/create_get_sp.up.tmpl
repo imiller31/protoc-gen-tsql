@@ -1,0 +1,14 @@
+CREATE OR ALTER PROCEDURE dbo.usp_Get{{.TableName}}
+{{- $length := len .Parameters -}}
+{{- $index := 0 -}}
+{{- range $key, $value := .Parameters -}}
+    {{$index = add $index 1}}
+    @{{$key}} {{$value.SqlType}}{{if ne $index $length}},{{end}}
+{{- end}}
+AS
+BEGIN
+	SET TRANSACTION ISOLATION LEVEL SNAPSHOT
+	SELECT body
+	FROM {{.TableName}}
+	WHERE {{$length := len .Parameters}}{{$index := 0}}{{range $key, $value := .Parameters}}{{$index = add $index 1}}[{{$value.Name}}] = @{{$key}}{{if ne $index $length}} AND {{end}}{{end}}
+END

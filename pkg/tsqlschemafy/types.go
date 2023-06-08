@@ -42,30 +42,66 @@ var funcs = template.FuncMap{
 	"sub": func(a, b int) int {
 		return a - b
 	},
+	"add": func(a, b int) int {
+		return a + b
+	},
 }
 
 func (db *Database) Generate(p *TsqlfyModule) error {
+	migrationPrefix := 0
 	for _, tbl := range db.TablesAndStoredProcs {
-		if err := tbl.Table.GenerateTableMigrations(p); err != nil {
+		migrationPrefix, err := tbl.Table.GenerateMigrations(p, migrationPrefix)
+		if err != nil {
 			return err
+		}
+		//sort the stored procs for consistency
+		keys := make([]string, 0, len(tbl.Procs))
+		for k := range tbl.Procs {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		for _, k := range keys {
+			if err := tbl.Procs[k].GenerateMigrations(p, migrationPrefix); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-func (tbl *Table) GenerateTableMigrations(p *TsqlfyModule) error {
-	migrationPrefix := 0
-	t := template.New("create_table.up.tmpl").Funcs(funcs)
-	t, err := t.ParseFS(sqlTemplates, "templates/create_table.up.tmpl")
+func (sp *StoredProcedure) GenerateMigrations(p *TsqlfyModule, migrationPrefix int) error {
+	t := template.New("create_get_sp.up.tmpl").Funcs(funcs)
+	t, err := t.ParseFS(sqlTemplates, "templates/create_get_sp.up.tmpl")
 	if err != nil {
 		return err
 	}
 	var out bytes.Buffer
-	if err := t.Execute(&out, tbl); err != nil {
+	if err := t.Execute(&out, sp); err != nil {
 		return err
 	}
 
-	p.Logf("TSQL:\n%s", out.String())
+	p.AddGeneratorFile(
+		strconv.Itoa(migrationPrefix)+
+			"_create_sp_"+
+			sp.StoredProcedureType+"_"+
+			sp.TableName+".up.sql",
+		out.String(),
+	)
+	migrationPrefix++
+	return err
+}
+
+func (tbl *Table) GenerateMigrations(p *TsqlfyModule, migrationPrefix int) (int, error) {
+	t := template.New("create_table.up.tmpl").Funcs(funcs)
+	t, err := t.ParseFS(sqlTemplates, "templates/create_table.up.tmpl")
+	if err != nil {
+		return migrationPrefix, err
+	}
+	var out bytes.Buffer
+	if err := t.Execute(&out, tbl); err != nil {
+		return migrationPrefix, err
+	}
 
 	p.AddGeneratorFile(
 		strconv.Itoa(migrationPrefix)+"_create_table_"+tbl.TableName+".up.sql",
@@ -104,11 +140,11 @@ func (tbl *Table) GenerateTableMigrations(p *TsqlfyModule) error {
 		t = template.New("create_column.up.tmpl").Funcs(funcs)
 		t, err = t.ParseFS(sqlTemplates, "templates/create_column.up.tmpl")
 		if err != nil {
-			return err
+			return migrationPrefix, err
 		}
 		out.Reset()
 		if err := t.Execute(&out, colWriter); err != nil {
-			return err
+			return migrationPrefix, err
 		}
 		p.AddGeneratorFile(
 			strconv.Itoa(migrationPrefix)+"_create_column_"+col.Name+".up.sql",
@@ -129,11 +165,11 @@ func (tbl *Table) GenerateTableMigrations(p *TsqlfyModule) error {
 	t = template.New("create_pkey.up.tmpl").Funcs(funcs)
 	t, err = t.ParseFS(sqlTemplates, "templates/create_pkey.up.tmpl")
 	if err != nil {
-		return err
+		return migrationPrefix, err
 	}
 	out.Reset()
 	if err := t.Execute(&out, pkeyWriter); err != nil {
-		return err
+		return migrationPrefix, err
 	}
 	p.AddGeneratorFile(
 		strconv.Itoa(migrationPrefix)+"_create_pkey_"+tbl.TableName+".up.sql",
@@ -141,5 +177,5 @@ func (tbl *Table) GenerateTableMigrations(p *TsqlfyModule) error {
 	)
 	migrationPrefix++
 
-	return err
+	return migrationPrefix, err
 }
